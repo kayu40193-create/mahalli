@@ -1,5 +1,7 @@
+import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 void main() => runApp(const MahalliApp());
 
@@ -7,9 +9,13 @@ const green = Color(0xFF087F5B);
 const categories = ['إلكترونيات', 'أزياء', 'المنزل', 'أخرى'];
 
 class Product {
-  final String name, category, description, size, colorName;
+  final String name;
+  final String category;
+  final String description;
+  final String size;
+  final String colorName;
   final int price;
-  final Color color;
+  final String? imagePath;
 
   const Product({
     required this.name,
@@ -17,8 +23,8 @@ class Product {
     required this.price,
     this.description = '',
     this.size = '',
-    this.colorName = 'أخضر',
-    this.color = const Color(0xFFDDF0DF),
+    this.colorName = 'غير محدد',
+    this.imagePath,
   });
 }
 
@@ -52,27 +58,25 @@ class _MarketPageState extends State<MarketPage> {
   String search = '';
   String category = 'الكل';
 
-  final favorites = <String>{};
-  final cart = <String>{};
+  final ImagePicker picker = ImagePicker();
+  final Set<String> favorites = {};
+  final Set<String> cart = {};
 
   final List<Product> products = [
     const Product(
       name: 'سماعات لاسلكية',
       category: 'إلكترونيات',
       price: 15,
-      color: Color(0xFFE4EAFB),
     ),
     const Product(
       name: 'حقيبة أنيقة',
       category: 'أزياء',
       price: 12,
-      color: Color(0xFFF9E5D9),
     ),
     const Product(
       name: 'ساعة يد',
       category: 'إلكترونيات',
       price: 20,
-      color: Color(0xFFE6E0F5),
     ),
     const Product(
       name: 'نبات منزلي',
@@ -80,6 +84,55 @@ class _MarketPageState extends State<MarketPage> {
       price: 5,
     ),
   ];
+
+  Future<String?> _pickImage() async {
+    try {
+      final XFile? file = await picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 80,
+        maxWidth: 1200,
+      );
+      return file?.path;
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('تعذر فتح معرض الصور. حاول مرة أخرى.'),
+          ),
+        );
+      }
+      return null;
+    }
+  }
+
+  Widget _productImage(Product product, {double iconSize = 58}) {
+    final path = product.imagePath;
+
+    if (path != null && File(path).existsSync()) {
+      return Image.file(
+        File(path),
+        width: double.infinity,
+        height: double.infinity,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => _imagePlaceholder(iconSize),
+      );
+    }
+
+    return _imagePlaceholder(iconSize);
+  }
+
+  Widget _imagePlaceholder(double iconSize) {
+    return Container(
+      width: double.infinity,
+      height: double.infinity,
+      color: const Color(0xFFDDF0DF),
+      child: Icon(
+        Icons.add_a_photo_outlined,
+        size: iconSize,
+        color: green,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -98,7 +151,10 @@ class _MarketPageState extends State<MarketPage> {
         appBar: AppBar(
           title: const Text(
             'محلّي',
-            style: TextStyle(color: green, fontWeight: FontWeight.bold),
+            style: TextStyle(
+              color: green,
+              fontWeight: FontWeight.bold,
+            ),
           ),
           actions: [
             IconButton(
@@ -205,10 +261,7 @@ class _MarketPageState extends State<MarketPage> {
           height: 45,
           child: ListView(
             scrollDirection: Axis.horizontal,
-            children: [
-              'الكل',
-              ...categories,
-            ].map((c) {
+            children: ['الكل', ...categories].map((c) {
               return Padding(
                 padding: const EdgeInsets.only(left: 8),
                 child: ChoiceChip(
@@ -256,21 +309,12 @@ class _MarketPageState extends State<MarketPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
-                        child: Container(
-                          width: double.infinity,
-                          decoration: BoxDecoration(
-                            color: p.color,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
                           child: Stack(
+                            fit: StackFit.expand,
                             children: [
-                              const Center(
-                                child: Icon(
-                                  Icons.shopping_bag_outlined,
-                                  size: 58,
-                                  color: green,
-                                ),
-                              ),
+                              _productImage(p),
                               Positioned(
                                 top: 0,
                                 left: 0,
@@ -350,7 +394,7 @@ class _MarketPageState extends State<MarketPage> {
           style: TextStyle(fontSize: 25, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
-        const Text('أضف منتجاتك لتظهر في السوق على هذا الجهاز.'),
+        const Text('أضف منتجاتك وصورها لتظهر في السوق على هذا الجهاز.'),
         const SizedBox(height: 18),
         FilledButton.icon(
           style: FilledButton.styleFrom(
@@ -371,9 +415,13 @@ class _MarketPageState extends State<MarketPage> {
           (p) => Card(
             color: Colors.white,
             child: ListTile(
-              leading: CircleAvatar(
-                backgroundColor: p.color,
-                child: const Icon(Icons.shopping_bag, color: green),
+              leading: SizedBox(
+                width: 54,
+                height: 54,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: _productImage(p, iconSize: 28),
+                ),
               ),
               title: Text(p.name),
               subtitle: Text('${p.category} • ${p.price} د.أ'),
@@ -391,7 +439,7 @@ class _MarketPageState extends State<MarketPage> {
         ),
         const SizedBox(height: 12),
         const Text(
-          'ملاحظة: هذه نسخة تجريبية، والمنتجات لا تُحفظ بعد إغلاق التطبيق.',
+          'ملاحظة: هذه نسخة تجريبية؛ المنتجات لا تُحفظ بعد إغلاق التطبيق.',
           style: TextStyle(color: Colors.grey),
         ),
       ],
@@ -405,7 +453,9 @@ class _MarketPageState extends State<MarketPage> {
     final description = TextEditingController();
     final size = TextEditingController();
     final colorName = TextEditingController();
+
     String selectedCategory = categories.first;
+    String? selectedImage;
 
     final product = await showDialog<Product>(
       context: context,
@@ -420,14 +470,57 @@ class _MarketPageState extends State<MarketPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    InkWell(
+                      onTap: () async {
+                        final path = await _pickImage();
+                        if (path != null) {
+                          refreshDialog(() => selectedImage = path);
+                        }
+                      },
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        height: 150,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFDDF0DF),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: green),
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: selectedImage == null
+                            ? const Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.add_photo_alternate_outlined,
+                                    size: 45,
+                                    color: green,
+                                  ),
+                                  SizedBox(height: 8),
+                                  Text('اضغط لاختيار صورة المنتج'),
+                                ],
+                              )
+                            : Image.file(
+                                File(selectedImage!),
+                                fit: BoxFit.cover,
+                                width: double.infinity,
+                                errorBuilder: (_, __, ___) =>
+                                    const Center(
+                                  child: Text('تعذر عرض الصورة'),
+                                ),
+                              ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
                     TextFormField(
                       controller: name,
                       decoration: const InputDecoration(
                         labelText: 'اسم المنتج *',
                       ),
-                      validator: (v) => v == null || v.trim().isEmpty
-                          ? 'أدخل اسم المنتج'
-                          : null,
+                      validator: (v) =>
+                          v == null || v.trim().isEmpty
+                              ? 'أدخل اسم المنتج'
+                              : null,
                     ),
                     TextFormField(
                       controller: price,
@@ -466,7 +559,9 @@ class _MarketPageState extends State<MarketPage> {
                     ),
                     TextFormField(
                       controller: size,
-                      decoration: const InputDecoration(labelText: 'الحجم أو المقاس'),
+                      decoration: const InputDecoration(
+                        labelText: 'الحجم أو المقاس',
+                      ),
                     ),
                     TextFormField(
                       controller: colorName,
@@ -485,6 +580,7 @@ class _MarketPageState extends State<MarketPage> {
             FilledButton(
               onPressed: () {
                 if (!formKey.currentState!.validate()) return;
+
                 Navigator.pop(
                   dialogContext,
                   Product(
@@ -496,6 +592,7 @@ class _MarketPageState extends State<MarketPage> {
                     colorName: colorName.text.trim().isEmpty
                         ? 'غير محدد'
                         : colorName.text.trim(),
+                    imagePath: selectedImage,
                   ),
                 );
               },
@@ -546,6 +643,14 @@ class _MarketPageState extends State<MarketPage> {
         ...items.map(
           (p) => Card(
             child: ListTile(
+              leading: SizedBox(
+                width: 48,
+                height: 48,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: _productImage(p, iconSize: 24),
+                ),
+              ),
               title: Text(p.name),
               subtitle: Text('${p.price} د.أ'),
               trailing: IconButton(
