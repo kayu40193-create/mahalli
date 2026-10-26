@@ -18,6 +18,20 @@ Future<void> main() async {
   runApp(const MahalliApp());
 }
 
+Future<List<Map<String, dynamic>>> fetchProductsFromSupabase() async {
+  try {
+    final data = await Supabase.instance.client
+        .from('products')
+        .select()
+        .order('created_at', ascending: false);
+
+    return List<Map<String, dynamic>>.from(data);
+  } catch (e) {
+    debugPrint('خطأ في تحميل المنتجات: $e');
+    return [];
+  }
+}
+
 const green = Color(0xFF087F5B);
 const categories = ['إلكترونيات', 'أزياء', 'المنزل', 'أخرى'];
 
