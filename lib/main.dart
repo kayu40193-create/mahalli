@@ -112,34 +112,34 @@ class _MarketPageState extends State<MarketPage> {
   final Set<String> favorites = {};
   final Map<String, int> cart = {};
 
-  List<Product> products = [
-    const Product(
-      name: 'سماعات لاسلكية',
-      category: 'إلكترونيات',
-      price: 15,
-    ),
-    const Product(
-      name: 'حقيبة أنيقة',
-      category: 'أزياء',
-      price: 12,
-    ),
-    const Product(
-      name: 'ساعة يد',
-      category: 'إلكترونيات',
-      price: 20,
-    ),
-    const Product(
-      name: 'نبات منزلي',
-      category: 'المنزل',
-      price: 5,
-    ),
-  ];
+  List<Product> products = [];
 
   @override
   void initState() {
     super.initState();
     _loadData();
   }
+ Future<void> loadProducts() async {
+  final rows = await fetchProductsFromSupabase();
+
+  if (!mounted) return;
+
+  setState(() {
+    products = rows.map((row) {
+      return Product(
+        name: row['name'] as String? ?? '',
+        category: row['category'] as String? ?? 'أخرى',
+        description: row['description'] as String? ?? '',
+        size: row['size'] as String? ?? '',
+        colorName: row['color_name'] as String? ?? 'غير محدد',
+        price: (row['price'] as num?)?.toInt() ?? 0,
+        imagePath: row['image_url'] as String?,
+      );
+    }).toList();
+
+    loading = false;
+  });
+} 
 
   int get cartCount =>
       cart.values.fold<int>(0, (sum, quantity) => sum + quantity);
