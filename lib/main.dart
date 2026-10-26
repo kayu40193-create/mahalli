@@ -60,7 +60,9 @@ class _MarketPageState extends State<MarketPage> {
 
   final ImagePicker picker = ImagePicker();
   final Set<String> favorites = {};
-  final Set<String> cart = {};
+
+  // اسم المنتج والكمية الموجودة في السلة.
+  final Map<String, int> cart = {};
 
   final List<Product> products = [
     const Product(
@@ -85,6 +87,17 @@ class _MarketPageState extends State<MarketPage> {
     ),
   ];
 
+  int get cartCount =>
+      cart.values.fold<int>(0, (sum, quantity) => sum + quantity);
+
+  int get cartTotal {
+    int total = 0;
+    for (final product in products) {
+      total += product.price * (cart[product.name] ?? 0);
+    }
+    return total;
+  }
+
   Future<String?> _pickImage() async {
     try {
       final XFile? file = await picker.pickImage(
@@ -105,7 +118,19 @@ class _MarketPageState extends State<MarketPage> {
     }
   }
 
-  Widget _productImage(Product product, {double iconSize = 58}) {
+  Widget _imagePlaceholder({double iconSize = 48}) {
+    return Container(
+      color: const Color(0xFFDDF0DF),
+      alignment: Alignment.center,
+      child: Icon(
+        Icons.add_a_photo_outlined,
+        size: iconSize,
+        color: green,
+      ),
+    );
+  }
+
+  Widget _productImage(Product product, {double iconSize = 48}) {
     final path = product.imagePath;
 
     if (path != null && File(path).existsSync()) {
@@ -114,24 +139,41 @@ class _MarketPageState extends State<MarketPage> {
         width: double.infinity,
         height: double.infinity,
         fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => _imagePlaceholder(iconSize),
+        errorBuilder: (_, __, ___) =>
+            _imagePlaceholder(iconSize: iconSize),
       );
     }
 
-    return _imagePlaceholder(iconSize);
+    return _imagePlaceholder(iconSize: iconSize);
   }
 
-  Widget _imagePlaceholder(double iconSize) {
-    return Container(
-      width: double.infinity,
-      height: double.infinity,
-      color: const Color(0xFFDDF0DF),
-      child: Icon(
-        Icons.add_a_photo_outlined,
-        size: iconSize,
-        color: green,
+  void _addToCart(Product product) {
+    setState(() {
+      cart[product.name] = (cart[product.name] ?? 0) + 1;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('أُضيف ${product.name} إلى السلة'),
+        duration: const Duration(seconds: 1),
       ),
     );
+  }
+
+  void _decreaseQuantity(Product product) {
+    setState(() {
+      final quantity = cart[product.name] ?? 0;
+
+      if (quantity <= 1) {
+        cart.remove(product.name);
+      } else {
+        cart[product.name] = quantity - 1;
+      }
+    });
+  }
+
+  void _removeFromCart(Product product) {
+    setState(() => cart.remove(product.name));
   }
 
   @override
@@ -142,6 +184,7 @@ class _MarketPageState extends State<MarketPage> {
       final matchesCategory =
           category == 'الكل' || p.category == category;
       final matchesTab = tab != 1 || favorites.contains(p.name);
+
       return matchesSearch && matchesCategory && matchesTab;
     }).toList();
 
@@ -158,10 +201,11 @@ class _MarketPageState extends State<MarketPage> {
           ),
           actions: [
             IconButton(
+              tooltip: 'سلة المشتريات',
               onPressed: () => setState(() => tab = 2),
               icon: Badge(
-                isLabelVisible: cart.isNotEmpty,
-                label: Text('${cart.length}'),
+                isLabelVisible: cartCount > 0,
+                label: Text('$cartCount'),
                 child: const Icon(Icons.shopping_cart_outlined),
               ),
             ),
@@ -181,24 +225,28 @@ class _MarketPageState extends State<MarketPage> {
         bottomNavigationBar: NavigationBar(
           selectedIndex: tab,
           onDestinationSelected: (value) => setState(() => tab = value),
-          destinations: const [
-            NavigationDestination(
+          destinations: [
+            const NavigationDestination(
               icon: Icon(Icons.home_outlined),
               label: 'الرئيسية',
             ),
-            NavigationDestination(
+            const NavigationDestination(
               icon: Icon(Icons.favorite_border),
               label: 'المفضلة',
             ),
             NavigationDestination(
-              icon: Icon(Icons.shopping_cart_outlined),
+              icon: Badge(
+                isLabelVisible: cartCount > 0,
+                label: Text('$cartCount'),
+                child: const Icon(Icons.shopping_cart_outlined),
+              ),
               label: 'السلة',
             ),
-            NavigationDestination(
+            const NavigationDestination(
               icon: Icon(Icons.person_outline),
               label: 'حسابي',
             ),
-            NavigationDestination(
+            const NavigationDestination(
               icon: Icon(Icons.storefront_outlined),
               label: 'متجري',
             ),
@@ -296,9 +344,9 @@ class _MarketPageState extends State<MarketPage> {
               mainAxisExtent: 235,
             ),
             itemBuilder: (context, index) {
-              final p = shown[index];
-              final fav = favorites.contains(p.name);
-              final added = cart.contains(p.name);
+              final product = shown[index];
+              final isFavorite = favorites.contains(product.name);
+              final quantity = cart[product.name] ?? 0;
 
               return Card(
                 color: Colors.white,
@@ -314,21 +362,25 @@ class _MarketPageState extends State<MarketPage> {
                           child: Stack(
                             fit: StackFit.expand,
                             children: [
-                              _productImage(p),
+                              _productImage(product),
                               Positioned(
                                 top: 0,
                                 left: 0,
                                 child: IconButton(
                                   onPressed: () => setState(() {
-                                    fav
-                                        ? favorites.remove(p.name)
-                                        : favorites.add(p.name);
+                                    if (isFavorite) {
+                                      favorites.remove(product.name);
+                                    } else {
+                                      favorites.add(product.name);
+                                    }
                                   }),
                                   icon: Icon(
-                                    fav
+                                    isFavorite
                                         ? Icons.favorite
                                         : Icons.favorite_border,
-                                    color: fav ? Colors.red : Colors.black54,
+                                    color: isFavorite
+                                        ? Colors.red
+                                        : Colors.black54,
                                   ),
                                 ),
                               ),
@@ -338,13 +390,13 @@ class _MarketPageState extends State<MarketPage> {
                       ),
                       const SizedBox(height: 7),
                       Text(
-                        p.name,
+                        product.name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                       Text(
-                        p.category,
+                        product.category,
                         style: const TextStyle(
                           fontSize: 12,
                           color: Colors.grey,
@@ -354,7 +406,7 @@ class _MarketPageState extends State<MarketPage> {
                         children: [
                           Expanded(
                             child: Text(
-                              '${p.price} د.أ',
+                              '${product.price} د.أ',
                               style: const TextStyle(
                                 color: green,
                                 fontWeight: FontWeight.bold,
@@ -363,13 +415,12 @@ class _MarketPageState extends State<MarketPage> {
                           ),
                           IconButton(
                             visualDensity: VisualDensity.compact,
-                            onPressed: () => setState(() {
-                              added ? cart.remove(p.name) : cart.add(p.name);
-                            }),
+                            tooltip: 'إضافة إلى السلة',
+                            onPressed: () => _addToCart(product),
                             icon: Icon(
-                              added
-                                  ? Icons.check_circle
-                                  : Icons.add_shopping_cart,
+                              quantity > 0
+                                  ? Icons.add_shopping_cart
+                                  : Icons.shopping_cart_outlined,
                               color: green,
                             ),
                           ),
@@ -383,6 +434,219 @@ class _MarketPageState extends State<MarketPage> {
           ),
       ],
     );
+  }
+
+  Widget _cartPage() {
+    final items = products
+        .where((product) => (cart[product.name] ?? 0) > 0)
+        .toList();
+
+    if (items.isEmpty) {
+      return _messagePage(
+        Icons.shopping_cart_outlined,
+        'سلة المشتريات',
+        'سلتك فارغة. اذهب إلى الرئيسية وأضف المنتجات التي تريدها.',
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'سلة المشتريات',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              ),
+            ),
+            TextButton.icon(
+              onPressed: () => _confirmClearCart(),
+              icon: const Icon(Icons.delete_outline, color: Colors.red),
+              label: const Text(
+                'تفريغ السلة',
+                style: TextStyle(color: Colors.red),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          '$cartCount قطعة في السلة',
+          style: const TextStyle(color: Colors.grey),
+        ),
+        const SizedBox(height: 12),
+        ...items.map((product) {
+          final quantity = cart[product.name] ?? 0;
+          final lineTotal = product.price * quantity;
+
+          return Card(
+            color: Colors.white,
+            margin: const EdgeInsets.only(bottom: 12),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      SizedBox(
+                        width: 82,
+                        height: 82,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: _productImage(product, iconSize: 30),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              product.name,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text('${product.price} د.أ للقطعة'),
+                            const SizedBox(height: 4),
+                            Text(
+                              'المجموع: $lineTotal د.أ',
+                              style: const TextStyle(
+                                color: green,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'حذف المنتج',
+                        onPressed: () => _removeFromCart(product),
+                        icon: const Icon(
+                          Icons.delete_outline,
+                          color: Colors.red,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 24),
+                  Row(
+                    children: [
+                      const Text('الكمية'),
+                      const Spacer(),
+                      IconButton(
+                        tooltip: 'تقليل الكمية',
+                        onPressed: () => _decreaseQuantity(product),
+                        icon: const Icon(Icons.remove_circle_outline),
+                      ),
+                      Container(
+                        constraints: const BoxConstraints(minWidth: 36),
+                        alignment: Alignment.center,
+                        child: Text(
+                          '$quantity',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'زيادة الكمية',
+                        onPressed: () => _addToCart(product),
+                        icon: const Icon(
+                          Icons.add_circle_outline,
+                          color: green,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        }),
+        const SizedBox(height: 8),
+        Card(
+          color: Colors.white,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                _summaryRow('عدد القطع', '$cartCount'),
+                const SizedBox(height: 12),
+                _summaryRow('الإجمالي', '$cartTotal د.أ', bold: true),
+                const SizedBox(height: 6),
+                const Text(
+                  'الإجمالي قبل أي رسوم توصيل؛ الدفع وإتمام الطلب غير مفعّلين بعد.',
+                  style: TextStyle(color: Colors.grey, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        FilledButton.icon(
+          style: FilledButton.styleFrom(
+            backgroundColor: green,
+            padding: const EdgeInsets.all(16),
+          ),
+          onPressed: () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'سيتم تفعيل إتمام الطلب بعد إضافة نظام الطلبات.',
+                ),
+              ),
+            );
+          },
+          icon: const Icon(Icons.receipt_long_outlined),
+          label: const Text('متابعة لإتمام الطلب'),
+        ),
+      ],
+    );
+  }
+
+  Widget _summaryRow(String label, String value, {bool bold = false}) {
+    final style = TextStyle(
+      fontSize: bold ? 19 : 16,
+      fontWeight: bold ? FontWeight.bold : FontWeight.normal,
+      color: bold ? green : null,
+    );
+
+    return Row(
+      children: [
+        Text(label, style: style),
+        const Spacer(),
+        Text(value, style: style),
+      ],
+    );
+  }
+
+  Future<void> _confirmClearCart() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('تفريغ السلة'),
+        content: const Text('هل تريد حذف جميع المنتجات من السلة؟'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('تفريغ'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      setState(() => cart.clear());
+    }
   }
 
   Widget _storePage() {
@@ -412,7 +676,7 @@ class _MarketPageState extends State<MarketPage> {
         ),
         const SizedBox(height: 8),
         ...products.map(
-          (p) => Card(
+          (product) => Card(
             color: Colors.white,
             child: ListTile(
               leading: SizedBox(
@@ -420,18 +684,18 @@ class _MarketPageState extends State<MarketPage> {
                 height: 54,
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: _productImage(p, iconSize: 28),
+                  child: _productImage(product, iconSize: 28),
                 ),
               ),
-              title: Text(p.name),
-              subtitle: Text('${p.category} • ${p.price} د.أ'),
+              title: Text(product.name),
+              subtitle: Text('${product.category} • ${product.price} د.أ'),
               trailing: IconButton(
                 tooltip: 'حذف المنتج',
                 icon: const Icon(Icons.delete_outline, color: Colors.red),
                 onPressed: () => setState(() {
-                  products.remove(p);
-                  favorites.remove(p.name);
-                  cart.remove(p.name);
+                  products.remove(product);
+                  favorites.remove(product.name);
+                  cart.remove(product.name);
                 }),
               ),
             ),
@@ -439,7 +703,7 @@ class _MarketPageState extends State<MarketPage> {
         ),
         const SizedBox(height: 12),
         const Text(
-          'ملاحظة: هذه نسخة تجريبية؛ المنتجات لا تُحفظ بعد إغلاق التطبيق.',
+          'ملاحظة: المنتجات والسلة لا تُحفظ بشكل دائم بعد إغلاق التطبيق.',
           style: TextStyle(color: Colors.grey),
         ),
       ],
@@ -517,8 +781,8 @@ class _MarketPageState extends State<MarketPage> {
                       decoration: const InputDecoration(
                         labelText: 'اسم المنتج *',
                       ),
-                      validator: (v) =>
-                          v == null || v.trim().isEmpty
+                      validator: (value) =>
+                          value == null || value.trim().isEmpty
                               ? 'أدخل اسم المنتج'
                               : null,
                     ),
@@ -528,9 +792,9 @@ class _MarketPageState extends State<MarketPage> {
                       decoration: const InputDecoration(
                         labelText: 'السعر بالدينار الأردني *',
                       ),
-                      validator: (v) {
-                        final value = int.tryParse(v ?? '');
-                        return value == null || value <= 0
+                      validator: (value) {
+                        final number = int.tryParse(value ?? '');
+                        return number == null || number <= 0
                             ? 'أدخل سعرًا صحيحًا'
                             : null;
                       },
@@ -538,18 +802,20 @@ class _MarketPageState extends State<MarketPage> {
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
                       value: selectedCategory,
-                      decoration: const InputDecoration(labelText: 'التصنيف'),
+                      decoration: const InputDecoration(
+                        labelText: 'التصنيف',
+                      ),
                       items: categories
                           .map(
-                            (c) => DropdownMenuItem(
-                              value: c,
-                              child: Text(c),
+                            (item) => DropdownMenuItem(
+                              value: item,
+                              child: Text(item),
                             ),
                           )
                           .toList(),
-                      onChanged: (v) {
-                        if (v != null) {
-                          refreshDialog(() => selectedCategory = v);
+                      onChanged: (value) {
+                        if (value != null) {
+                          refreshDialog(() => selectedCategory = value);
                         }
                       },
                     ),
@@ -614,61 +880,11 @@ class _MarketPageState extends State<MarketPage> {
         products.insert(0, product);
         tab = 4;
       });
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('تمت إضافة المنتج إلى السوق')),
       );
     }
-  }
-
-  Widget _cartPage() {
-    final items = products.where((p) => cart.contains(p.name)).toList();
-
-    if (items.isEmpty) {
-      return _messagePage(
-        Icons.shopping_cart_outlined,
-        'سلة المشتريات',
-        'سلتك فارغة. أضف منتجات من السوق.',
-      );
-    }
-
-    final total = items.fold<int>(0, (sum, p) => sum + p.price);
-
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        const Text(
-          'سلة المشتريات',
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-        ),
-        ...items.map(
-          (p) => Card(
-            child: ListTile(
-              leading: SizedBox(
-                width: 48,
-                height: 48,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: _productImage(p, iconSize: 24),
-                ),
-              ),
-              title: Text(p.name),
-              subtitle: Text('${p.price} د.أ'),
-              trailing: IconButton(
-                icon: const Icon(Icons.delete_outline),
-                onPressed: () => setState(() => cart.remove(p.name)),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Text(
-          'المجموع: $total د.أ',
-          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
-        const Text('إتمام الطلب والدفع غير مفعّلين بعد.'),
-      ],
-    );
   }
 
   Widget _messagePage(IconData icon, String title, String message) {
