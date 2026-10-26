@@ -1,7 +1,10 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() => runApp(const MahalliApp());
 
@@ -26,6 +29,28 @@ class Product {
     this.colorName = 'غير محدد',
     this.imagePath,
   });
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'category': category,
+        'description': description,
+        'size': size,
+        'colorName': colorName,
+        'price': price,
+        'imagePath': imagePath,
+      };
+
+  factory Product.fromJson(Map<String, dynamic> json) {
+    return Product(
+      name: json['name'] as String? ?? '',
+      category: json['category'] as String? ?? 'أخرى',
+      description: json['description'] as String? ?? '',
+      size: json['size'] as String? ?? '',
+      colorName: json['colorName'] as String? ?? 'غير محدد',
+      price: (json['price'] as num?)?.toInt() ?? 0,
+      imagePath: json['imagePath'] as String?,
+    );
+  }
 }
 
 class MahalliApp extends StatelessWidget {
@@ -57,14 +82,13 @@ class _MarketPageState extends State<MarketPage> {
   int tab = 0;
   String search = '';
   String category = 'الكل';
+  bool loading = true;
 
   final ImagePicker picker = ImagePicker();
   final Set<String> favorites = {};
-
-  // اسم المنتج والكمية الموجودة في السلة.
   final Map<String, int> cart = {};
 
-  final List<Product> products = [
+  List<Product> products = [
     const Product(
       name: 'سماعات لاسلكية',
       category: 'إلكترونيات',
@@ -87,6 +111,12 @@ class _MarketPageState extends State<MarketPage> {
     ),
   ];
 
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
   int get cartCount =>
       cart.values.fold<int>(0, (sum, quantity) => sum + quantity);
 
@@ -98,19 +128,115 @@ class _MarketPageState extends State<MarketPage> {
     return total;
   }
 
-  Future<String?> _pickImage() async {
+  Future<void> _loadData() async {
     try {
-      final XFile? file = await picker.pickImage(
-        source: ImageSource.gallery,
-        imageQuality: 80,
-        maxWidth: 1200,
+      final prefs = await SharedPreferences.getInstance();
+
+      final savedProducts = prefs.getString('mahalli_products');
+      final savedFavorites = prefs.getStringList('mahalli_favorites');
+      final savedCart = prefs.getString('mahalli_cart');
+
+      if (savedProducts != null) {
+        final decoded = jsonDecode(savedProducts) as List<dynamic>;
+        products = decoded
+            .map(
+              (item) => Product.fromJson(
+                Map<String, dynamic>.from(item as Map),
+              ),
+            )
+            .toList();
+      }
+
+      if (savedFavorites != null) {
+        favorites
+          ..clear()
+          ..addAll(savedFavorites);
+      }
+
+      if (savedCart != null) {
+        final decoded = jsonDecode(savedCart) as Map<String, dynamic>;
+        cart
+          ..clear()
+          ..addAll(
+            decoded.map(
+              (key, value) => MapEntry(key, (value as num).toInt()),
+            ),
+          );
+      }
+
+      // حذف أي عناصر من السلة لم تعد موجودة في المنتجات.
+      final names = products.map((p) => p.name).toSet();
+      cart.removeWhere((key, value) => !names.contains(key));
+      favorites.removeWhere((name) => !names.contains(name));
+    } catch (_) {
+      // إذا تعذر تحميل بيانات محفوظة، يستمر التطبيق بالبيانات الافتراضية.
+    }
+
+    if (mounted) {
+      setState(() => loading = false);
+    }
+  }
+
+  Future<void> _saveData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      await prefs.setString(
+        'mahalli_products',
+        jsonEncode(products.map((p) => p.toJson()).toList()),
       );
-      return file?.path;
+
+      await prefs.setStringList(
+        'mahalli_favorites',
+        favorites.toList(),
+      );
+
+      await prefs.setString('mahalli_cart', jsonEncode(cart));
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('تعذر فتح معرض الصور. حاول مرة أخرى.'),
+            content: Text('تعذر حفظ البيانات على الجهاز.'),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<String?> _pickAndSaveImage() async {
+    try {
+      final XFile? picked = await picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 80,
+        maxWidth: 1200,
+      );
+
+      if (picked == null) return null;
+
+      final directory = await getApplicationDocumentsDirectory();
+      final imagesDirectory = Directory('${directory.path}/product_images');
+
+      if (!await imagesDirectory.exists()) {
+        await imagesDirectory.create(recursive: true);
+      }
+
+      final extension = picked.path.contains('.')
+          ? picked.path.split('.').last
+          : 'jpg';
+
+      final fileName =
+          'product_${DateTime.now().microsecondsSinceEpoch}.$extension';
+
+      final savedFile = await File(picked.path).copy(
+        '${imagesDirectory.path}/$fileName',
+      );
+
+      return savedFile.path;
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('تعذر اختيار الصورة أو حفظها. حاول مرة أخرى.'),
           ),
         );
       }
@@ -151,6 +277,7 @@ class _MarketPageState extends State<MarketPage> {
     setState(() {
       cart[product.name] = (cart[product.name] ?? 0) + 1;
     });
+    _saveData();
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -163,21 +290,33 @@ class _MarketPageState extends State<MarketPage> {
   void _decreaseQuantity(Product product) {
     setState(() {
       final quantity = cart[product.name] ?? 0;
-
       if (quantity <= 1) {
         cart.remove(product.name);
       } else {
         cart[product.name] = quantity - 1;
       }
     });
+    _saveData();
   }
 
   void _removeFromCart(Product product) {
     setState(() => cart.remove(product.name));
+    _saveData();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (loading) {
+      return const Directionality(
+        textDirection: TextDirection.rtl,
+        child: Scaffold(
+          body: Center(
+            child: CircularProgressIndicator(color: green),
+          ),
+        ),
+      );
+    }
+
     final shown = products.where((p) {
       final matchesSearch =
           p.name.contains(search) || p.category.contains(search);
@@ -367,13 +506,16 @@ class _MarketPageState extends State<MarketPage> {
                                 top: 0,
                                 left: 0,
                                 child: IconButton(
-                                  onPressed: () => setState(() {
-                                    if (isFavorite) {
-                                      favorites.remove(product.name);
-                                    } else {
-                                      favorites.add(product.name);
-                                    }
-                                  }),
+                                  onPressed: () {
+                                    setState(() {
+                                      if (isFavorite) {
+                                        favorites.remove(product.name);
+                                      } else {
+                                        favorites.add(product.name);
+                                      }
+                                    });
+                                    _saveData();
+                                  },
                                   icon: Icon(
                                     isFavorite
                                         ? Icons.favorite
@@ -461,7 +603,7 @@ class _MarketPageState extends State<MarketPage> {
               ),
             ),
             TextButton.icon(
-              onPressed: () => _confirmClearCart(),
+              onPressed: _confirmClearCart,
               icon: const Icon(Icons.delete_outline, color: Colors.red),
               label: const Text(
                 'تفريغ السلة',
@@ -646,6 +788,7 @@ class _MarketPageState extends State<MarketPage> {
 
     if (confirmed == true && mounted) {
       setState(() => cart.clear());
+      await _saveData();
     }
   }
 
@@ -658,7 +801,7 @@ class _MarketPageState extends State<MarketPage> {
           style: TextStyle(fontSize: 25, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
-        const Text('أضف منتجاتك وصورها لتظهر في السوق على هذا الجهاز.'),
+        const Text('منتجاتك تُحفظ على هذا الجهاز.'),
         const SizedBox(height: 18),
         FilledButton.icon(
           style: FilledButton.styleFrom(
@@ -692,18 +835,21 @@ class _MarketPageState extends State<MarketPage> {
               trailing: IconButton(
                 tooltip: 'حذف المنتج',
                 icon: const Icon(Icons.delete_outline, color: Colors.red),
-                onPressed: () => setState(() {
-                  products.remove(product);
-                  favorites.remove(product.name);
-                  cart.remove(product.name);
-                }),
+                onPressed: () async {
+                  setState(() {
+                    products.remove(product);
+                    favorites.remove(product.name);
+                    cart.remove(product.name);
+                  });
+                  await _saveData();
+                },
               ),
             ),
           ),
         ),
         const SizedBox(height: 12),
         const Text(
-          'ملاحظة: المنتجات والسلة لا تُحفظ بشكل دائم بعد إغلاق التطبيق.',
+          'البيانات محفوظة على هذا الجهاز فقط، وليست مشتركة عبر الإنترنت.',
           style: TextStyle(color: Colors.grey),
         ),
       ],
@@ -736,7 +882,7 @@ class _MarketPageState extends State<MarketPage> {
                   children: [
                     InkWell(
                       onTap: () async {
-                        final path = await _pickImage();
+                        final path = await _pickAndSaveImage();
                         if (path != null) {
                           refreshDialog(() => selectedImage = path);
                         }
@@ -881,9 +1027,15 @@ class _MarketPageState extends State<MarketPage> {
         tab = 4;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تمت إضافة المنتج إلى السوق')),
-      );
+      await _saveData();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('تمت إضافة المنتج وحفظه على الجهاز'),
+          ),
+        );
+      }
     }
   }
 
