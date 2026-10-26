@@ -1,3 +1,4 @@
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -6,7 +7,16 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-void main() => runApp(const MahalliApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Supabase.initialize(
+    url: 'https://dmlvymwzsmbzfxgqyafx.supabase.co',
+    anonKey: 'sb_publishable_CiJl0yHA-MI24qCo-BKeDg_BNqPt5Na',
+  );
+
+  runApp(const MahalliApp());
+}
 
 const green = Color(0xFF087F5B);
 const categories = ['إلكترونيات', 'أزياء', 'المنزل', 'أخرى'];
